@@ -1,0 +1,13 @@
+{
+  "port": 7860,
+  "engine_port": 8081,
+  "open_browser": true,
+  "extra_engine_args": [
+    "--steps", "8",
+    "--cfg-scale", "1",
+    "--sampling-method", "euler",
+    "--sigmas", "qwen-image-2.1-turbo",
+    "--offload-to-cpu",
+    "--flash-attn", "off,diffusion=on"
+  ]
+}

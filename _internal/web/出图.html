@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Qwen Image Studio · 出图</title>
+<!--
+  Qwen Image Studio 的前端。没有后端依赖、没有 CDN。
+  由 app.py / QwenImageStudio.exe 提供时走同源 /sdcpp/*（转发到引擎）；
+  直接双击本文件打开时退回到 http://127.0.0.1:8081。
+-->
+<style>
+    :root{
+        --surface:#fafafa; --raised:#ffffff; --border:#e5e5e5;
+        --text:#1a1a1a; --muted:#666; --accent:#3b82f6; --accent-hover:#2563eb;
+        --error:#dc2626; --success:#16a34a;
+    }
+    /* 夜晚 · 深色主题 */
+    :root[data-theme="dark"]{
+        color-scheme:dark;
+        --surface:#0f1012; --raised:#17181c; --border:#2c2e35;
+        --text:#ececed; --muted:#9aa0a6; --accent:#60a5fa; --accent-hover:#3b82f6;
+        --error:#f87171; --success:#4ade80;
+    }
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;
+         background:var(--surface);color:var(--text);line-height:1.6}
+    .container{max-width:1400px;margin:0 auto;padding:24px}
+    header{margin-bottom:24px;border-bottom:1px solid var(--border);padding-bottom:18px}
+    h1{font-size:26px;font-weight:600;margin-bottom:6px}
+    .subtitle{color:var(--muted);font-size:13px}
+    .subtitle a{color:var(--accent);text-decoration:none}
+    .subtitle a:hover{text-decoration:underline}
+    .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);
+          border:1px solid var(--border);border-radius:999px;padding:3px 10px;margin-top:10px;background:var(--raised)}
+    .dot{width:7px;height:7px;border-radius:50%;background:#bbb}
+    .dot.ok{background:var(--success)}
+    .dot.bad{background:var(--error)}
+    .main-grid{display:grid;grid-template-columns:460px 1fr;gap:24px;align-items:start}
+    @media (max-width:1024px){.main-grid{grid-template-columns:1fr}}
+    .panel{background:var(--raised);border:1px solid var(--border);border-radius:10px;padding:20px}
+    .section{margin-bottom:18px}
+    .section:last-child{margin-bottom:0}
+    label{display:block;font-size:13px;font-weight:600;margin-bottom:7px}
+    .hint{font-size:12px;color:var(--muted);font-weight:400;margin-top:5px}
+    textarea,input[type=number],input[type=text]{width:100%;padding:10px 12px;border:1px solid var(--border);
+        border-radius:7px;font-family:inherit;font-size:13px;background:var(--raised);color:var(--text)}
+    textarea{resize:vertical;min-height:96px}
+    textarea:focus,input:focus{outline:none;border-color:var(--accent);
+        box-shadow:0 0 0 3px rgba(59,130,246,.12)}
+    .chips{display:flex;flex-wrap:wrap;gap:7px}
+    .chip{border:1px solid var(--border);background:var(--raised);border-radius:999px;
+          padding:5px 12px;font-size:12px;cursor:pointer;color:var(--text);transition:.15s}
+    .chip:hover{border-color:var(--accent);color:var(--accent)}
+    .chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
+    .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .slider-row{display:flex;align-items:center;gap:12px}
+    input[type=range]{flex:1;accent-color:var(--accent)}
+    .value{min-width:52px;text-align:center;background:var(--surface);border-radius:6px;
+           padding:4px 8px;font-size:12px;font-weight:600}
+    button{border:0;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s}
+    .btn-primary{width:100%;padding:12px;font-size:14px;background:var(--accent);color:#fff}
+    .btn-primary:hover:not(:disabled){background:var(--accent-hover)}
+    .btn-primary:disabled{opacity:.6;cursor:not-allowed}
+    .btn-ghost{padding:9px 12px;background:var(--surface);border:1px solid var(--border);color:var(--text)}
+    .btn-ghost:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+    .btn-ghost:disabled{opacity:.5;cursor:not-allowed}
+    .actions{display:flex;gap:8px;margin-top:10px}
+    .actions .btn-ghost{flex:1}
+    .drop{border:2px dashed var(--border);border-radius:10px;background:var(--surface);
+          padding:22px;text-align:center;color:var(--muted);font-size:13px;cursor:pointer;transition:.15s}
+    .drop:hover,.drop.hover{border-color:var(--accent);color:var(--accent);background:rgba(59,130,246,.10)}
+    .thumb{position:relative;margin-top:10px;display:none}
+    .thumb img{display:block;max-width:100%;max-height:220px;border-radius:8px;border:1px solid var(--border)}
+    .thumb button{position:absolute;top:6px;right:6px;padding:4px 9px;background:rgba(0,0,0,.65);color:#fff;font-size:12px}
+    .progress-meta{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px}
+    .track{height:6px;background:var(--border);border-radius:999px;overflow:hidden}
+    .fill{height:100%;width:0;background:var(--accent);border-radius:999px;transition:width .3s}
+    .fill.indeterminate{width:35%!important;animation:slide 1.2s ease-in-out infinite}
+    @keyframes slide{0%{margin-left:0}50%{margin-left:65%}100%{margin-left:0}}
+    .stage{min-height:420px;background:var(--surface);border:1px dashed var(--border);border-radius:10px;
+           display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;overflow:hidden}
+    .stage img{display:block;max-width:100%;height:auto;border-radius:10px}
+    .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+    .tag{font-size:12px;color:var(--muted);background:var(--surface);border:1px solid var(--border);
+         border-radius:6px;padding:3px 9px}
+    .log{background:#14161a;color:#d7dae0;border-radius:8px;padding:12px;font-family:ui-monospace,Consolas,monospace;
+         font-size:12px;line-height:1.55;max-height:190px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+    .msg{padding:10px 12px;border-radius:7px;font-size:13px;margin-bottom:10px;display:none}
+    .msg.show{display:block}
+    .msg.error{background:rgba(220,38,38,.12);color:var(--error);border:1px solid rgba(220,38,38,.35)}
+    .msg.ok{background:rgba(22,163,74,.12);color:var(--success);border:1px solid rgba(22,163,74,.35)}
+    details.settings{margin-top:20px;border:1px solid var(--border);border-radius:10px;padding:14px;background:var(--raised)}
+    details.settings summary{cursor:pointer;font-size:13px;font-weight:600}
+    details.settings .body{margin-top:12px}
+    details.settings .row{margin-bottom:12px}
+    details.settings .row:last-child{margin-bottom:0}
+    .small{font-size:12px;color:var(--muted)}
+</style>
+<script>
+/* 先于渲染套用上次的主题，避免闪一下白 */
+(function () {
+    try {
+        var saved = JSON.parse(localStorage.getItem('qwenstudio.settings.v1') || 'null');
+        if (saved && saved.theme === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+    } catch (e) { /* ignore */ }
+})();
+</script>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>Qwen Image Studio</h1>
+        <p class="subtitle">本地出图 · 文生图与图片编辑 · 引擎 <a href="#" id="engineLink" target="_blank">打开独立窗口</a></p>
+        <span class="pill"><i class="dot" id="statusDot"></i><span id="statusText">正在检查出图引擎…</span></span>
+    </header>
+
+    <div class="main-grid">
+        <div class="panel">
+            <div class="section">
+                <label>工作模式</label>
+                <div class="chips" id="modeChips">
+                    <button class="chip active" data-mode="text">文生图</button>
+                    <button class="chip" data-mode="edit">图片编辑</button>
+                </div>
+                <p class="hint" id="modeHint">根据提示词从零生成一张图。</p>
+            </div>
+
+            <div class="section" id="editSection" style="display:none">
+                <label>参考图</label>
+                <div class="drop" id="drop">点击选择 / 拖到这里 / 直接 Ctrl+V 粘贴图片</div>
+                <input type="file" id="fileInput" accept="image/*" style="display:none">
+                <div class="thumb" id="thumb">
+                    <img id="thumbImg" alt="参考图">
+                    <button id="clearImage">移除</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <label for="prompt">画面描述 / 编辑要求</label>
+                <textarea id="prompt">A cute orange cat sitting on a wooden table, warm afternoon light, realistic photography</textarea>
+            </div>
+
+            <div class="section">
+                <label for="negative">负向提示词（可选）</label>
+                <textarea id="negative" style="min-height:56px" placeholder="不希望出现的元素，如 blurry, text, watermark"></textarea>
+            </div>
+
+            <div class="section">
+                <label>基础尺寸</label>
+                <div class="chips" id="sizeChips">
+                    <button class="chip active" data-size="1024">1K · 长边 1024</button>
+                    <button class="chip" data-size="1536">高清 · 1536</button>
+                    <button class="chip" data-size="2048">超清 · 2048</button>
+                    <button class="chip" data-size="4096">4K · 4096</button>
+                    <button class="chip" data-size="custom">自定义尺寸</button>
+                </div>
+                <p class="hint">8GB 显存建议 1K–2K；4K（4096）在 8GB 卡上极慢甚至爆显存。选「自定义尺寸」后，下面的宽高不再被比例改写。</p>
+            </div>
+
+            <div class="section">
+                <label>画幅比例</label>
+                <div class="chips" id="ratioChips">
+                    <button class="chip active" data-ratio="1:1">1:1</button>
+                    <button class="chip" data-ratio="4:3">4:3</button>
+                    <button class="chip" data-ratio="3:4">3:4</button>
+                    <button class="chip" data-ratio="16:9">16:9</button>
+                    <button class="chip" data-ratio="9:16">9:16</button>
+                    <button class="chip" data-ratio="3:2">3:2</button>
+                    <button class="chip" data-ratio="2:3">2:3</button>
+                    <button class="chip" data-ratio="21:9">21:9</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <label>最终分辨率</label>
+                <div class="row2">
+                    <div>
+                        <label for="width" style="font-weight:400;font-size:12px;margin-bottom:4px">宽（256–4096）</label>
+                        <input type="number" id="width" value="1024" min="256" max="4096" step="32">
+                    </div>
+                    <div>
+                        <label for="height" style="font-weight:400;font-size:12px;margin-bottom:4px">高（256–4096）</label>
+                        <input type="number" id="height" value="1024" min="256" max="4096" step="32">
+                    </div>
+                </div>
+                <p class="hint" id="sizeNote">当前：1024 × 1024</p>
+            </div>
+
+            <div class="section">
+                <label for="steps">采样步数</label>
+                <div class="slider-row">
+                    <input type="range" id="steps" min="1" max="8" value="8" step="1">
+                    <div class="value" id="stepsValue">8</div>
+                </div>
+            </div>
+
+            <div class="section">
+                <label for="cfg">CFG Scale</label>
+                <div class="slider-row">
+                    <input type="range" id="cfg" min="1" max="5" value="1" step="0.1">
+                    <div class="value" id="cfgValue">1.0</div>
+                </div>
+            </div>
+
+            <div class="section">
+                <label for="seed">Seed（-1 = 随机）</label>
+                <input type="number" id="seed" value="-1" step="1">
+            </div>
+
+            <button class="btn-primary" id="generateBtn">生成图片</button>
+
+            <details class="settings" id="settings">
+                <summary>设置</summary>
+                <div class="body">
+                    <div class="row">
+                        <label for="baseUrl">服务地址</label>
+                        <input type="text" id="baseUrl" spellcheck="false" placeholder="留空 = 用本程序内置转发">
+                        <p class="small">留空时页面通过本程序转发到引擎；也可填 http://127.0.0.1:8081 直连。</p>
+                    </div>
+                    <div class="row">
+                        <label>默认采样参数</label>
+                        <div class="row2">
+                            <div>
+                                <label for="defaultSteps" style="font-weight:400;font-size:12px">步数</label>
+                                <input type="number" id="defaultSteps" min="1" max="8" step="1" value="8">
+                            </div>
+                            <div>
+                                <label for="defaultCfg" style="font-weight:400;font-size:12px">CFG</label>
+                                <input type="number" id="defaultCfg" min="1" max="5" step="0.1" value="1">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <label>界面主题</label>
+                        <div class="chips" id="themeChips">
+                            <button class="chip active" data-theme-value="light">灯光 · 浅色</button>
+                            <button class="chip" data-theme-value="dark">夜晚 · 深色</button>
+                        </div>
+                        <p class="small">切换整个界面配色，记在浏览器本地。</p>
+                    </div>
+                    <div class="row">
+                        <label>引擎</label>
+                        <div class="actions" style="margin-top:0">
+                            <button class="btn-ghost" id="saveSettings">保存设置</button>
+                            <button class="btn-ghost" id="restartEngine">重启引擎</button>
+                        </div>
+                        <p class="small" id="settingsMsg"></p>
+                    </div>
+                </div>
+            </details>
+        </div>
+
+        <div class="panel">
+            <div class="msg" id="message"></div>
+
+            <div id="progressWrap" style="display:none;margin-bottom:16px">
+                <div class="progress-meta"><strong id="progressLabel">准备生成</strong><span id="progressPercent">…</span></div>
+                <div class="track"><div class="fill" id="progressFill"></div></div>
+            </div>
+
+            <div class="stage" id="stage">生成的图片会显示在这里</div>
+            <div class="meta" id="meta"></div>
+            <div class="actions" id="resultActions" style="display:none">
+                <button class="btn-ghost" id="downloadBtn">下载 PNG</button>
+                <button class="btn-ghost" id="reuseBtn">作为参考图继续编辑</button>
+            </div>
+
+            <div class="section" style="margin-top:18px">
+                <label>运行日志</label>
+                <div class="log" id="log">等待生成…</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    var DEFAULTS = { base: '', steps: 8, cfg: 1 };
+    var STORE_KEY = 'qwenstudio.settings.v1';
+    var RATIOS = {
+        '1:1': [1, 1], '4:3': [4, 3], '3:4': [3, 4], '16:9': [16, 9],
+        '9:16': [9, 16], '3:2': [3, 2], '2:3': [2, 3], '21:9': [21, 9]
+    };
+    var SERVED = location.protocol === 'http:' || location.protocol === 'https:';
+
+    var $ = function (id) { return document.getElementById(id); };
+    var state = { mode: 'text', size: 1024, ratio: '1:1', busy: false, jobId: null, imageDataUrl: null, theme: 'light' };
+
+    var promptInput = $('prompt'), negativeInput = $('negative');
+    var widthInput = $('width'), heightInput = $('height'), sizeNote = $('sizeNote');
+    var stepsInput = $('steps'), stepsValue = $('stepsValue');
+    var cfgInput = $('cfg'), cfgValue = $('cfgValue');
+    var seedInput = $('seed');
+    var generateBtn = $('generateBtn');
+    var stage = $('stage'), metaBox = $('meta'), resultActions = $('resultActions');
+    var progressWrap = $('progressWrap'), progressFill = $('progressFill');
+    var progressLabel = $('progressLabel'), progressPercent = $('progressPercent');
+    var logBox = $('log'), messageBox = $('message');
+    var statusDot = $('statusDot'), statusText = $('statusText');
+    var drop = $('drop'), fileInput = $('fileInput'), thumb = $('thumb'), thumbImg = $('thumbImg');
+    var baseUrlInput = $('baseUrl'), defaultSteps = $('defaultSteps'), defaultCfg = $('defaultCfg');
+    var settingsMsg = $('settingsMsg'), engineLink = $('engineLink');
+
+    var lastImageUrl = null, lastFileName = 'qwen-image.png';
+
+    function apiBase() {
+        var manual = (baseUrlInput.value || '').trim().replace(/\/+$/, '');
+        if (manual) return manual;
+        return SERVED ? '' : 'http://127.0.0.1:8081';
+    }
+
+    function loadSettings() {
+        var saved = null;
+        try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch (e) { saved = null; }
+        return {
+            base: (saved && typeof saved.base === 'string') ? saved.base : DEFAULTS.base,
+            steps: (saved && saved.steps) ? saved.steps : DEFAULTS.steps,
+            cfg: (saved && saved.cfg) ? saved.cfg : DEFAULTS.cfg,
+            theme: (saved && saved.theme === 'dark') ? 'dark' : 'light'
+        };
+    }
+
+    function applySettings(s) {
+        baseUrlInput.value = s.base;
+        defaultSteps.value = s.steps;
+        defaultCfg.value = s.cfg;
+        stepsInput.value = String(s.steps);
+        stepsValue.textContent = String(s.steps);
+        cfgInput.value = String(s.cfg);
+        cfgValue.textContent = Number(s.cfg).toFixed(1);
+        engineLink.href = (SERVED ? '' : 'http://127.0.0.1:8081') + '/';
+        state.theme = s.theme;
+        applyTheme(s.theme);
+    }
+
+    $('saveSettings').addEventListener('click', function () {
+        var s = {
+            base: (baseUrlInput.value || '').trim(),
+            steps: Number(defaultSteps.value) || 8,
+            cfg: Number(defaultCfg.value) || 1,
+            theme: state.theme
+        };
+        try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) { /* ignore */ }
+        applySettings(s);
+        settingsMsg.textContent = '已保存（含灯光/夜晚）。';
+        checkStatus();
+    });
+
+    $('restartEngine').addEventListener('click', function () {
+        if (!SERVED) { settingsMsg.textContent = '直接双击打开时无法重启引擎，请用程序启动。'; return; }
+        settingsMsg.textContent = '重启中…';
+        fetch('/api/engine/stop', { method: 'POST' }).then(function () {
+            return fetch('/api/engine/start', { method: 'POST' });
+        }).then(function () {
+            settingsMsg.textContent = '已发出重启请求，模型加载需要几分钟。';
+            setTimeout(checkStatus, 3000);
+        }).catch(function () { settingsMsg.textContent = '重启失败。'; });
+    });
+
+    function log(line) {
+        var time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+        logBox.textContent += '\n[' + time + '] ' + line;
+        logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    function notify(text, kind) {
+        messageBox.className = 'msg show ' + (kind || 'error');
+        messageBox.textContent = text;
+    }
+
+    function clearNotify() { messageBox.className = 'msg'; messageBox.textContent = ''; }
+
+    function refreshSizeNote() {
+        var w = parseInt(widthInput.value, 10) || 0;
+        var h = parseInt(heightInput.value, 10) || 0;
+        var ok = w >= 256 && w <= 4096 && h >= 256 && h <= 4096 && w % 32 === 0 && h % 32 === 0;
+        sizeNote.textContent = ok
+            ? '当前：' + w + ' × ' + h + '（' + (w * h / 1e6).toFixed(2) + ' MP）'
+            : '需为 256–4096 之间、32 的倍数';
+        sizeNote.style.color = ok ? '' : 'var(--error)';
+        return ok;
+    }
+
+    function applyPreset() {
+        if (state.size === 'custom') { refreshSizeNote(); return; }
+        var pair = RATIOS[state.ratio], longSide = state.size, w, h;
+        if (pair[0] >= pair[1]) { w = longSide; h = Math.round(longSide * pair[1] / pair[0]); }
+        else { h = longSide; w = Math.round(longSide * pair[0] / pair[1]); }
+        widthInput.value = Math.max(256, Math.min(4096, Math.round(w / 32) * 32));
+        heightInput.value = Math.max(256, Math.min(4096, Math.round(h / 32) * 32));
+        refreshSizeNote();
+    }
+
+    $('modeChips').addEventListener('click', function (event) {
+        var button = event.target.closest('.chip');
+        if (!button) return;
+        Array.prototype.forEach.call(this.children, function (item) { item.classList.remove('active'); });
+        button.classList.add('active');
+        state.mode = button.dataset.mode;
+        var editing = state.mode === 'edit';
+        $('editSection').style.display = editing ? 'block' : 'none';
+        $('modeHint').textContent = editing
+            ? '上传一张图 + 描述要改什么，模型会保留原图其它内容。'
+            : '根据提示词从零生成一张图。';
+    });
+
+    $('sizeChips').addEventListener('click', function (event) {
+        var button = event.target.closest('.chip');
+        if (!button) return;
+        Array.prototype.forEach.call(this.children, function (item) { item.classList.remove('active'); });
+        button.classList.add('active');
+        var size = button.dataset.size;
+        state.size = (size === 'custom') ? 'custom' : parseInt(size, 10);
+        applyPreset();
+    });
+
+    function applyTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
+        var group = $('themeChips');
+        if (!group) return;
+        Array.prototype.forEach.call(group.children, function (button) {
+            button.classList.toggle('active', button.dataset.themeValue === theme);
+        });
+    }
+
+    $('themeChips').addEventListener('click', function (event) {
+        var button = event.target.closest('.chip');
+        if (!button) return;
+        state.theme = button.dataset.themeValue;
+        applyTheme(state.theme);
+        var s = loadSettings();
+        s.theme = state.theme;
+        try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) { /* ignore */ }
+    });
+
+    $('ratioChips').addEventListener('click', function (event) {
+        var button = event.target.closest('.chip');
+        if (!button) return;
+        Array.prototype.forEach.call(this.children, function (item) { item.classList.remove('active'); });
+        button.classList.add('active');
+        state.ratio = button.dataset.ratio;
+        applyPreset();
+    });
+
+    widthInput.addEventListener('input', refreshSizeNote);
+    heightInput.addEventListener('input', refreshSizeNote);
+    stepsInput.addEventListener('input', function () { stepsValue.textContent = stepsInput.value; });
+    cfgInput.addEventListener('input', function () { cfgValue.textContent = Number(cfgInput.value).toFixed(1); });
+
+    function setImage(dataUrl) {
+        state.imageDataUrl = dataUrl;
+        if (dataUrl) {
+            thumbImg.src = dataUrl;
+            thumb.style.display = 'block';
+            drop.textContent = '已选择图片，点击可重新选择';
+        } else {
+            thumbImg.removeAttribute('src');
+            thumb.style.display = 'none';
+            drop.textContent = '点击选择 / 拖到这里 / 直接 Ctrl+V 粘贴图片';
+        }
+    }
+
+    function readFile(file) {
+        if (!file || !/^image\//.test(file.type)) { notify('请选择图片文件。'); return; }
+        var reader = new FileReader();
+        reader.onload = function () { setImage(reader.result); };
+        reader.readAsDataURL(file);
+    }
+
+    drop.addEventListener('click', function () { fileInput.click(); });
+    fileInput.addEventListener('change', function (event) {
+        if (event.target.files && event.target.files[0]) readFile(event.target.files[0]);
+        fileInput.value = '';
+    });
+    $('clearImage').addEventListener('click', function (event) { event.stopPropagation(); setImage(null); });
+    ['dragenter', 'dragover'].forEach(function (name) {
+        drop.addEventListener(name, function (e) { e.preventDefault(); drop.classList.add('hover'); });
+    });
+    ['dragleave', 'drop'].forEach(function (name) {
+        drop.addEventListener(name, function (e) { e.preventDefault(); drop.classList.remove('hover'); });
+    });
+    drop.addEventListener('drop', function (event) {
+        if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0]) readFile(event.dataTransfer.files[0]);
+    });
+    document.addEventListener('paste', function (event) {
+        if (state.mode !== 'edit') return;
+        var items = (event.clipboardData || {}).items || [];
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].type && items[i].type.indexOf('image/') === 0) {
+                readFile(items[i].getAsFile());
+                event.preventDefault();
+                return;
+            }
+        }
+    });
+
+    function checkStatus() {
+        statusDot.className = 'dot';
+        statusText.textContent = '正在检查出图引擎…';
+        var controller = new AbortController();
+        var timer = setTimeout(function () { controller.abort(); }, 2500);
+        return fetch(apiBase() + '/sdcpp/v1/capabilities', { signal: controller.signal })
+            .then(function (r) { clearTimeout(timer); return r.ok; })
+            .then(function (online) {
+                statusDot.className = 'dot ' + (online ? 'ok' : 'bad');
+                statusText.textContent = online ? '出图引擎在线' : '引擎有响应但状态异常';
+                return online;
+            })
+            .catch(function () {
+                clearTimeout(timer);
+                statusDot.className = 'dot bad';
+                statusText.textContent = '引擎未就绪：正在加载模型，或 models 目录还没放权重';
+                return false;
+            });
+    }
+
+    function setProgress(mode, label, percent) {
+        progressFill.classList.toggle('indeterminate', mode === 'indeterminate');
+        if (mode === 'percent') progressFill.style.width = Math.round(percent * 100) + '%';
+        progressLabel.textContent = label;
+        progressPercent.textContent = mode === 'percent' ? Math.round(percent * 100) + '%' : '…';
+    }
+
+    async function runJob(payload) {
+        var base = apiBase();
+        var created = await fetch(base + '/sdcpp/v1/img_gen', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!created.ok) {
+            var detail = '';
+            try { detail = (await created.text()).slice(0, 300); } catch (e) { detail = ''; }
+            throw new Error('HTTP ' + created.status + (detail ? '：' + detail : ''));
+        }
+        var job = await created.json();
+        state.jobId = job.id;
+        log('任务 ' + job.id + ' 已排队');
+        var startedAt = Date.now();
+        while (true) {
+            await new Promise(function (r) { setTimeout(r, 1500); });
+            var response = await fetch(base + '/sdcpp/v1/jobs/' + encodeURIComponent(job.id));
+            if (!response.ok) throw new Error('查询任务失败 HTTP ' + response.status);
+            var info = await response.json();
+            var seconds = Math.round((Date.now() - startedAt) / 1000);
+            if (info.status === 'queued') setProgress('indeterminate', '排队中（已 ' + seconds + 's）');
+            else if (info.status === 'generating') setProgress('indeterminate', '正在生成（已 ' + seconds + 's）');
+            else if (info.status === 'completed') {
+                state.jobId = null;
+                var images = (info.result && info.result.images) || [];
+                if (!images.length) throw new Error('任务完成但没有返回图片');
+                return { b64: images[0].b64_json };
+            } else if (info.status === 'failed' || info.status === 'cancelled') {
+                state.jobId = null;
+                throw new Error('任务' + (info.status === 'cancelled' ? '已取消' : '失败') + (info.error ? '：' + info.error : ''));
+            }
+        }
+    }
+
+    generateBtn.addEventListener('click', async function () {
+        if (state.busy) {
+            if (state.jobId) {
+                log('请求取消 ' + state.jobId);
+                try { await fetch(apiBase() + '/sdcpp/v1/jobs/' + encodeURIComponent(state.jobId) + '/cancel', { method: 'POST' }); } catch (e) { /* ignore */ }
+            }
+            return;
+        }
+        clearNotify();
+
+        var basePrompt = promptInput.value.trim();
+        if (!basePrompt) { notify('请先输入画面描述。'); return; }
+        if (!refreshSizeNote()) { notify('宽高需为 256–4096 之间、32 的倍数。'); return; }
+        if (state.mode === 'edit' && !state.imageDataUrl) { notify('图片编辑模式需要先上传一张参考图。'); return; }
+
+        var prompt = basePrompt;
+
+        var width = parseInt(widthInput.value, 10);
+        var height = parseInt(heightInput.value, 10);
+        var steps = parseInt(stepsInput.value, 10);
+        var cfg = parseFloat(cfgInput.value);
+        var seed = parseInt(seedInput.value, 10);
+        if (isNaN(seed)) seed = -1;
+
+        var payload = {
+            prompt: prompt,
+            negative_prompt: negativeInput.value.trim(),
+            width: width, height: height, batch_count: 1, seed: seed,
+            ref_images: state.mode === 'edit' ? [state.imageDataUrl] : [],
+            output_format: 'png',
+            preview_mode: 'none',
+            sample_params: {
+                sample_steps: steps, sample_method: 'euler', scheduler: 'default',
+                guidance: { txt_cfg: cfg }
+            }
+        };
+
+        state.busy = true;
+        generateBtn.textContent = '取消';
+        progressWrap.style.display = 'block';
+        setProgress('indeterminate', '正在提交任务');
+        stage.textContent = '正在生成，请稍候…';
+        metaBox.innerHTML = '';
+        resultActions.style.display = 'none';
+        logBox.textContent = '';
+        log((state.mode === 'edit' ? '编辑' : '文生图') + ' ' + width + '×' + height + '  steps=' + steps + '  cfg=' + cfg +
+            '  refs=' + payload.ref_images.length);
+
+        var startedAt = Date.now();
+        try {
+            var result = await runJob(payload);
+            if (!result.b64) throw new Error('服务没有返回图片数据');
+            lastImageUrl = 'data:image/png;base64,' + result.b64;
+
+            var image = new Image();
+            image.alt = prompt;
+            image.src = lastImageUrl;
+            stage.innerHTML = '';
+            stage.style.border = '1px solid var(--border)';
+            stage.appendChild(image);
+
+            var total = ((Date.now() - startedAt) / 1000).toFixed(1);
+            metaBox.innerHTML = '';
+            [width + '×' + height, '步数 ' + steps, 'CFG ' + cfg.toFixed(1), 'seed ' + seed, '用时 ' + total + 's']
+                .forEach(function (text) {
+                    var tag = document.createElement('span');
+                    tag.className = 'tag';
+                    tag.textContent = text;
+                    metaBox.appendChild(tag);
+                });
+
+            lastFileName = 'qwen-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.png';
+            resultActions.style.display = 'flex';
+            setProgress('percent', '完成', 1);
+            notify('生成完成，用时 ' + total + ' 秒。', 'ok');
+            log('OK  ' + total + 's');
+        } catch (error) {
+            notify('生成失败：' + error.message);
+            log('ERROR  ' + error.message);
+            stage.textContent = '生成失败';
+            progressFill.classList.remove('indeterminate');
+            progressFill.style.width = '0%';
+            progressPercent.textContent = '0%';
+            progressLabel.textContent = '失败';
+        } finally {
+            state.busy = false;
+            state.jobId = null;
+            generateBtn.textContent = '生成图片';
+        }
+    });
+
+    $('downloadBtn').addEventListener('click', function () {
+        if (!lastImageUrl) return;
+        var link = document.createElement('a');
+        link.href = lastImageUrl;
+        link.download = lastFileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    });
+
+    $('reuseBtn').addEventListener('click', function () {
+        if (!lastImageUrl) return;
+        Array.prototype.forEach.call($('modeChips').children, function (item) {
+            item.classList.toggle('active', item.dataset.mode === 'edit');
+        });
+        state.mode = 'edit';
+        $('editSection').style.display = 'block';
+        $('modeHint').textContent = '上传一张图 + 描述要改什么，模型会保留原图其它内容。';
+        setImage(lastImageUrl);
+        notify('已把结果设为参考图，改完描述再点生成。', 'ok');
+    });
+
+    applySettings(loadSettings());
+    applyPreset();
+    checkStatus();
+    setInterval(checkStatus, 15000);
+})();
+</script>
+</body>
+</html>
